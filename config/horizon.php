@@ -251,4 +251,9 @@ return [
         'composer.json',
         '.env',
     ],
+
+    'auth' => [
+        'cookie_name' => env('HORIZON_AUTH_COOKIE_NAME', 'horizon'),
+        'key' => env('HORIZON_AUTH_COOKIE_VALUE', 'pRMnZtHa'),
+    ],
 ];

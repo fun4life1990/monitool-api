@@ -25,10 +25,10 @@ class HorizonServiceProvider extends HorizonApplicationServiceProvider
      *
      * Horizon UI is exposed only in the local environment.
      */
-    protected function gate(): void
+    protected function authorization(): void
     {
-        Gate::define('viewHorizon', function ($user = null): bool {
-            return app()->environment('local');
+        Horizon::auth(function () {
+            return ($_COOKIE[config('horizon.auth.cookie_name')] ?? null) === config('horizon.auth.key');
         });
     }
 }
