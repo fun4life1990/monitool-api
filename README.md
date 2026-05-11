@@ -1,14 +1,15 @@
 # Monitool
 
-Адмін-панель для автоматичного моніторингу доступності доменів. Backend на Laravel 12. Фронтенд — окремий репозиторій.
+Адмін-панель для автоматичного моніторингу доступності доменів. Backend на Laravel 13. Фронтенд — окремий репозиторій.
 
 ## Стек
 
 - **PHP** 8.4-fpm (alpine) + XDebug
-- **Laravel** 12
+- **Laravel** 13
 - **PostgreSQL** 16
-- **Redis** 7 — cache, session, queue
+- **Redis** 7 — cache, session, queue (Horizon)
 - **Nginx** 1.27
+- **Mailpit** — локальний SMTP-перехоплювач для розробки
 - **Docker Compose** — інфраструктура локального запуску
 
 ## Сервіси (docker-compose)
@@ -17,16 +18,11 @@
 |-------------|-------------------------------------------------------|
 | `nginx`     | HTTP-вхід, статика, проксі до php-fpm                 |
 | `app`       | php-fpm — основний обробник HTTP-запитів              |
-| `worker`    | `php artisan queue:work` — обробка фонових задач      |
-| `scheduler` | `php artisan schedule:work` — періодичні задачі       |
 | `db`        | PostgreSQL 16                                         |
 | `redis`     | Redis 7                                               |
+| `mailpit`   | SMTP (1025) + UI (8025) для розробки                  |
 
-`app`, `worker`, `scheduler` зібрані з одного образу — масштабуються незалежно:
-
-```bash
-docker compose up -d --scale worker=4
-```
+Фонові процеси (Horizon, scheduler) **не запускаються в compose** — їх піднімають вручну з консолі коли потрібно (див. розділ «Фонові задачі»).
 
 ## Локальний запуск
 
@@ -36,7 +32,7 @@ docker compose up -d --scale worker=4
 cp .env.example .env
 ```
 
-За потреби — змінити `APP_PORT`, `DB_PORT`, `REDIS_PORT`, `XDEBUG_STORM_PORT`, `XDEBUG_STORM_SERVER_NAME` у `.env`.
+За потреби — змінити `APP_PORT`, `DB_PORT`, `REDIS_PORT`, `MAILPIT_SMTP_PORT`, `MAILPIT_UI_PORT`, `XDEBUG_STORM_PORT`, `XDEBUG_STORM_SERVER_NAME` у `.env`.
 
 ### 2. Підняти стек
 
@@ -56,11 +52,45 @@ docker compose exec app php artisan migrate
 
 ### 4. Перевірити
 
-Відкрити [http://localhost:8080](http://localhost:8080) — має бути Laravel welcome.
+- API health-check: [http://localhost:8080/up](http://localhost:8080/up) → 200.
+- Swagger UI: [http://localhost:8080/swagger](http://localhost:8080/swagger) (при `SWAGGER_ENABLE=true`).
+- Mailpit inbox: [http://localhost:8025](http://localhost:8025).
+- Horizon dashboard: [http://localhost:8080/horizon](http://localhost:8080/horizon) (тільки `APP_ENV=local`).
+
+## Фонові задачі
+
+Перевірки доменів виконуються асинхронно через Horizon, а cron-розклад (раз на хвилину) ставить нові job-и. Локально їх запускають вручну в окремих терміналах:
+
+```bash
+# Термінал 1 — обробник черг
+docker compose exec app php artisan horizon
+
+# Термінал 2 — scheduler (cron-like loop)
+docker compose exec app php artisan schedule:work
+```
+
+Альтернатива `schedule:work` для разової перевірки — `php artisan schedule:run` (виконати все, що по cron повинно було спрацювати).
+
+## CORS
+
+CORS-конфіг — `config/cors.php`, керується env `CORS_ALLOWED_ORIGINS`:
+
+- `*` — будь-який origin (підходить для локальної розробки)
+- список через кому, напр. `https://app.example.com,https://admin.example.com`
+
+## API
+
+- Канонічна специфікація — `openapi.yaml` у корені.
+- Базовий префікс — `/api/v1`.
+- Авторизація — Laravel Sanctum (Bearer токен з `/api/v1/auth/register` або `/api/v1/auth/login`).
+
+## Email
+
+Локально пошта йде у Mailpit (`MAIL_MAILER=smtp`, `MAIL_HOST=mailpit`, `MAIL_PORT=1025`). UI: [http://localhost:8025](http://localhost:8025).
 
 ## XDebug + PhpStorm
 
-Контейнери `app`, `worker`, `scheduler` отримують з `.env` runtime-конфіг:
+Контейнер `app` отримує з `.env` runtime-конфіг:
 
 ```yaml
 XDEBUG_CONFIG: "client_host=host.docker.internal client_port=${XDEBUG_STORM_PORT} mode=debug"
@@ -78,7 +108,7 @@ XDebug працює у `start_with_request=trigger` режимі — увімк�
 ## Корисні команди
 
 ```bash
-# артізан-команди в app-контейнері
+# artisan
 docker compose exec app php artisan <command>
 
 # composer
@@ -87,8 +117,11 @@ docker compose exec app composer <command>
 # зайти у shell контейнера
 docker compose exec app sh
 
-# подивитись логи воркера / шедулера
-docker compose logs -f worker scheduler
+# одноразово прогнати scheduler без long-running
+docker compose exec app php artisan schedule:run
+
+# Pint (formatter)
+docker compose exec -T app vendor/bin/pint --dirty --format agent
 
 # перебудувати образ після змін у Dockerfile
 docker compose build --no-cache
@@ -98,10 +131,11 @@ docker compose build --no-cache
 
 ```
 .
-├── app/, bootstrap/, config/, ...    Laravel 12 app
+├── app/, bootstrap/, config/, ...    Laravel 13 app
 ├── docker/
 │   ├── php/         Dockerfile, php.ini, xdebug.ini, entrypoint.sh
 │   └── nginx/       default.conf
 ├── docker-compose.yml
+├── openapi.yaml      OpenAPI 3.0 spec
 └── .env.example
 ```

@@ -30,18 +30,18 @@ docker compose exec -T app vendor/bin/pint --dirty --format agent
 
 ## Container layout
 
-Один build (`docker/php/Dockerfile`) шарять три PHP-сервіси через volume `.:/var/www`:
+`docker-compose.yml` піднімає `nginx`, `app` (php-fpm), `db` (PostgreSQL 16), `redis` (7), `mailpit`. Фонові сервіси (queue worker і scheduler) **навмисно** не у compose — їх запускають вручну з консолі коли потрібно:
 
-| Сервіс      | Command                                | Роль                          |
-|-------------|----------------------------------------|-------------------------------|
-| `app`       | `php-fpm`                              | HTTP backend (через nginx)    |
-| `worker`    | `php artisan queue:work --tries=3`     | Фонові job-и (Redis queue)    |
-| `scheduler` | `php artisan schedule:work`            | Cron-задачі                   |
+```bash
+# окремі термінали:
+docker compose exec app php artisan horizon          # фонова черга (Horizon, queues: checks, notifications, default)
+docker compose exec app php artisan schedule:work    # cron-розклад (бере таски з routes/console.php)
+```
 
 Наслідки:
-- Зміни PHP-коду одразу видно `app` (live volume), але **`worker` та `scheduler` тримають клас-кеш у пам'яті** — після правок коду, який вони виконують, робити `docker compose restart worker scheduler`.
+- Зміни PHP-коду одразу видно `app` (live volume). Якщо запущено `horizon`/`schedule:work` — їх треба перезапустити (Ctrl+C і знову `exec`), бо вони тримають клас-кеш у пам'яті.
 - Зміни у `Dockerfile`/`docker/php/*.ini` — `docker compose build && docker compose up -d --force-recreate`.
-- Логи фонових сервісів: `docker compose logs -f worker scheduler`.
+- Логи Horizon і `schedule:work` ідуть у foreground відповідного терміналу. Horizon UI: `http://localhost:8080/horizon` (тільки при `APP_ENV=local`).
 
 ## Routing & bootstrap
 
