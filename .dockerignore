@@ -1,0 +1,32 @@
+.git
+.gitignore
+.gitattributes
+
+# Dev compose stack — not used in production image
+docker-compose.yml
+docker/php
+docker/nginx
+
+# Local env / build artifacts
+.env
+.env.*
+!.env.example
+node_modules
+storage/logs/*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*.php
+vendor
+
+# Editor / OS / tooling
+.idea
+.vscode
+.fleet
+.claude*
+.DS_Store
+
+# Tests (intentionally absent per CLAUDE.md, but exclude defensively)
+tests
+phpunit.xml
+.phpunit.result.cache
