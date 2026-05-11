@@ -1,0 +1,16 @@
+openapi: 3.0.3
+
+info:
+  title: Monitool API
+  version: 0.1.0
+  contact:
+    name: Monitool
+
+servers:
+  - url: http://localhost:8080
+
+components:
+  securitySchemes:
+    sanctum:
+      type: http
+      scheme: bearer

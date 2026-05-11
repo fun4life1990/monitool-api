@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
+Route::get('/swagger', function () {
+    abort_unless(config('app.swagger.enable') === true, 404);
+
+    return view('swagger', ['schemaUrl' => '/openapi.yaml']);
 });

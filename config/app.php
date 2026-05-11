@@ -123,4 +123,7 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'swagger' => [
+        'enable' => env('SWAGGER_ENABLE', false),
+    ],
 ];

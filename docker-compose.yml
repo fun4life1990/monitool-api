@@ -36,47 +36,6 @@ services:
     networks:
       - monitool
 
-  worker:
-    image: monitool/php:dev
-    build:
-      context: ./docker/php
-      args:
-        WWW_UID: ${WWW_UID:-1000}
-        WWW_GID: ${WWW_GID:-1000}
-    restart: unless-stopped
-    working_dir: /var/www
-    volumes:
-      - ./:/var/www:cached
-    environment: *php_env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    command: ["php", "artisan", "queue:work", "--tries=3", "--sleep=3"]
-    depends_on:
-      - app
-      - redis
-    networks:
-      - monitool
-
-  scheduler:
-    image: monitool/php:dev
-    build:
-      context: ./docker/php
-      args:
-        WWW_UID: ${WWW_UID:-1000}
-        WWW_GID: ${WWW_GID:-1000}
-    restart: unless-stopped
-    working_dir: /var/www
-    volumes:
-      - ./:/var/www:cached
-    environment: *php_env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    command: ["php", "artisan", "schedule:work"]
-    depends_on:
-      - app
-    networks:
-      - monitool
-
   db:
     image: postgres:16-alpine
     restart: unless-stopped
