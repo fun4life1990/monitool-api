@@ -7,9 +7,11 @@ namespace App\Jobs;
 use App\Models\Domain;
 use App\Notifications\DomainStatusChanged;
 use App\Services\DomainProbe;
+use App\Services\ProbeResult;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 
 class CheckDomainJob implements ShouldQueue
@@ -35,10 +37,41 @@ class CheckDomainJob implements ShouldQueue
             return;
         }
 
-        $result = $probe->probe($domain);
+        $key = $domain->url_normalized ?? Domain::normalizeUrl($domain->url);
+        $lock = Cache::lock(
+            'domain-check:'.md5(($key ?? '').'|'.$domain->method->value),
+            60,
+        );
 
+        if (! $lock->get()) {
+            // Another worker is already probing the same URL+method; that run
+            // will fan its result out to this domain too, so we just exit.
+            return;
+        }
+
+        try {
+            $result = $probe->probe($domain);
+            $checkedAt = Carbon::now();
+
+            $this->applyResult($domain, $result, $checkedAt);
+
+            Domain::query()
+                ->with('user')
+                ->where('id', '!=', $domain->id)
+                ->where('url_normalized', $domain->url_normalized)
+                ->where('method', $domain->method->value)
+                ->where('is_active', true)
+                ->each(function (Domain $sibling) use ($result, $checkedAt): void {
+                    $this->applyResult($sibling, $result, $checkedAt);
+                });
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function applyResult(Domain $domain, ProbeResult $result, Carbon $checkedAt): void
+    {
         $previousStatus = $domain->last_status;
-        $checkedAt = Carbon::now();
 
         $domain->checks()->create([
             'status' => $result->status,

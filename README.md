@@ -71,6 +71,8 @@ docker compose exec app php artisan schedule:work
 
 Альтернатива `schedule:work` для разової перевірки — `php artisan schedule:run` (виконати все, що по cron повинно було спрацювати).
 
+Horizon UI на `APP_ENV != local` гейтиться cookie-перевіркою через `HORIZON_AUTH_COOKIE_NAME` + `HORIZON_AUTH_COOKIE_VALUE` (виставити вручну у браузері перед відкриттям `/horizon`). У local — UI відкритий без cookie.
+
 ## CORS
 
 CORS-конфіг — `config/cors.php`, керується env `CORS_ALLOWED_ORIGINS`:
@@ -82,7 +84,7 @@ CORS-конфіг — `config/cors.php`, керується env `CORS_ALLOWED_OR
 
 - Канонічна специфікація — `openapi.yaml` у корені.
 - Базовий префікс — `/api/v1`.
-- Авторизація — Laravel Sanctum (Bearer токен з `/api/v1/auth/register` або `/api/v1/auth/login`).
+- Авторизація — Laravel Sanctum, **виключно Bearer токени** (SPA/cookie-flow відключені; `/sanctum/csrf-cookie` не реєструється). Токен видається `/api/v1/auth/register` або `/api/v1/auth/login` і передається у заголовку `Authorization: Bearer <token>`.
 
 ## Email
 
@@ -127,15 +129,42 @@ docker compose exec -T app vendor/bin/pint --dirty --format agent
 docker compose build --no-cache
 ```
 
+## Production / деплой
+
+В репо є production-артефакти для self-host або DigitalOcean App Platform — локальний `docker-compose.yml` для них **не використовується**.
+
+- **`Dockerfile`** (корінь) — multi-stage образ:
+  1. `vendor` (composer:2) — `composer install --no-dev --optimize-autoloader` (з `--ignore-platform-req=ext-pcntl`, бо `pcntl` ставиться у runtime-стадії).
+  2. `runtime` (php:8.4-fpm-alpine) — php-fpm + nginx + supervisor у одному образі, слухає `:8080`. Конфіги — у `docker/prod/` (`php.ini`, `php-fpm.conf`, `nginx.conf`, `supervisord.conf`, `entrypoint.sh`).
+- **`docker/prod/entrypoint.sh`** — на старті чистить і перебудовує `config:cache` / `route:cache` / `event:cache` під runtime env, потім `exec` основного процесу (`supervisord`).
+- **`.do/app.yaml`** — DigitalOcean App Platform spec. Описує:
+  - `services.api` — HTTP-сервіс (health-check `GET /up`, port 8080);
+  - `workers.horizon` — `php artisan horizon`;
+  - `workers.scheduler` — `php artisan schedule:work`;
+  - `jobs.migrate` (PRE_DEPLOY) — `php artisan migrate --force`;
+  - managed PostgreSQL + Valkey (Redis-сумісний) кластери, підключені через `${monitool-postgres.*}` / `${monitool-redis.DATABASE_URL}`.
+
+Перед першим deploy потрібно проставити секрети у App Platform: `APP_KEY` (`php artisan key:generate --show`) і `HORIZON_AUTH_COOKIE_VALUE`.
+
+Self-host локально без compose:
+
+```bash
+docker build -t monitool:prod .
+docker run --rm -p 8080:8080 --env-file .env.production monitool:prod
+```
+
 ## Структура
 
 ```
 .
 ├── app/, bootstrap/, config/, ...    Laravel 13 app
 ├── docker/
-│   ├── php/         Dockerfile, php.ini, xdebug.ini, entrypoint.sh
-│   └── nginx/       default.conf
-├── docker-compose.yml
-├── openapi.yaml      OpenAPI 3.0 spec
+│   ├── php/         dev: Dockerfile, php.ini, xdebug.ini, entrypoint.sh
+│   ├── nginx/       dev: default.conf
+│   └── prod/        prod: nginx.conf, php-fpm.conf, php.ini, supervisord.conf, entrypoint.sh
+├── docker-compose.yml    dev стек
+├── Dockerfile            prod образ (multi-stage)
+├── .do/app.yaml          DigitalOcean App Platform spec
+├── openapi.yaml          OpenAPI 3.0 spec
 └── .env.example
 ```

@@ -381,6 +381,12 @@ components:
           type: string
           format: uri
           maxLength: 2048
+          description: >
+            Target URL. Must be unique within the authenticated user's domains.
+            Uniqueness is checked against a normalized form: scheme and host are
+            lowercased, the default port (80/443) and a trailing slash on the
+            path are ignored, and the fragment is discarded. A 422 response with
+            field `url` will be returned for duplicates.
         method:
           type: string
           enum: [GET, HEAD]
