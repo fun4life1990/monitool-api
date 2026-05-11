@@ -14,6 +14,7 @@ RUN composer install \
         --no-scripts \
         --prefer-dist \
         --optimize-autoloader \
+        --ignore-platform-req=ext-pcntl \
     && rm -rf /root/.composer/cache
 
 # ─── Stage 2: runtime (php-fpm + nginx + supervisor) ──────────────────────
