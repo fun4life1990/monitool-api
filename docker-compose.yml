@@ -1,0 +1,115 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - ./:/var/www:cached
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - monitool
+
+  app:
+    build:
+      context: ./docker/php
+      args:
+        WWW_UID: ${WWW_UID:-1000}
+        WWW_GID: ${WWW_GID:-1000}
+    image: monitool/php:dev
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www:cached
+    environment: &php_env
+      XDEBUG_CONFIG: "client_host=host.docker.internal client_port=${XDEBUG_STORM_PORT} mode=debug"
+      PHP_IDE_CONFIG: "serverName=${XDEBUG_STORM_SERVER_NAME}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - monitool
+
+  worker:
+    image: monitool/php:dev
+    build:
+      context: ./docker/php
+      args:
+        WWW_UID: ${WWW_UID:-1000}
+        WWW_GID: ${WWW_GID:-1000}
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www:cached
+    environment: *php_env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["php", "artisan", "queue:work", "--tries=3", "--sleep=3"]
+    depends_on:
+      - app
+      - redis
+    networks:
+      - monitool
+
+  scheduler:
+    image: monitool/php:dev
+    build:
+      context: ./docker/php
+      args:
+        WWW_UID: ${WWW_UID:-1000}
+        WWW_GID: ${WWW_GID:-1000}
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www:cached
+    environment: *php_env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      - app
+    networks:
+      - monitool
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-monitool}
+      POSTGRES_USER: ${DB_USERNAME:-monitool}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-monitool} -d ${DB_DATABASE:-monitool}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - monitool
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - monitool
+
+volumes:
+  db_data:
+  redis_data:
+
+networks:
+  monitool:
+    driver: bridge
